@@ -1,0 +1,9 @@
+# Copyright (c) 2026 Jacob Schloss
+# SPDX-License-Identifier: Apache-2.0
+
+config ENTROPY_RNG90
+	bool "Microchip RNG90 driver"
+	default y
+	select ENTROPY_HAS_DRIVER
+	help
+	  This option enables the driver for the Microchip RNG90 RNG.
