@@ -87,6 +87,7 @@ enum rng90_selftest_code {
 // I2C address
 // Resp packet [count, status, crc]
 
+// Return negative error code or length of data written to resp
 static int entropy_rng90_exec_cmd(const struct device *dev, 
 	uint8_t *cmd, uint16_t cmdlen,
 	uint8_t *resp, uint16_t resplen,
@@ -104,42 +105,64 @@ static int entropy_rng90_exec_cmd(const struct device *dev,
 
 	k_sleep(K_USEC(typ_us));
 
-	do 
+	// Packets have two forms
+	// <len=1> <status> <crcl> <crch>
+	// <len=n> <b bytes> <crcl> <crch>
+	// We are permitted to split fifo read into multiple read transactions
+	// We have option to reset fifo to start to re-read by sending RNG90_RST
+	if(resplen)
 	{
-		ret = i2c_read_dt(&cfg->bus, resp, resplen);
-		if(ret)
+		// First read length
+		do 
 		{
-			k_sleep(K_MSEC(1));
-		}
-	} while((k_cycle_get_32() - start_cycles) > max_cycle_cnt);
+			ret = i2c_read_dt(&cfg->bus, resp, 1);
+			if(ret)
+			{
+				k_sleep(K_MSEC(1));
+			}
+		} while((k_cycle_get_32() - start_cycles) > max_cycle_cnt);
 
-	return ret;
+		// Either we have not enough space, or length is corrupt
+		// Reject it - we could reset and retry read
+		if( (resp[0]+2) > resplen )
+		{
+			return -EIO;
+		}
+
+		// Read rest of packet and crc
+		do 
+		{
+			ret = i2c_read_dt(&cfg->bus, resp, resp[0]+2);
+			if(ret)
+			{
+				k_sleep(K_MSEC(1));
+			}
+		} while((k_cycle_get_32() - start_cycles) > max_cycle_cnt);
+
+		crc = crc16(RNG90_CRC16_POLYNOMIAL, RNG90_CRC16_INITIAL_VALUE, resp+resp[0]+1, 2);
+		if(crc != sys_get_le16(&resp_buf[2]))
+		{
+			return -EIO;
+		}
+	}
+
+	return resp[0] + 3;
 }
 
 static int entropy_rng90_cmd_wake(const struct device *dev)
 {
 	const struct entropy_rng90_config *cfg = dev->config;
 	uint16_t crc;
+	int ret;
 
-	int ret = i2c_write_dt(&cfg->bus, NULL, 0);
-	if(ret)
-	{
-		LOG_ERR("Sleep failed");
-	}
-
+	uint8_t cmd_buf[1] = {RNG90_RST};
 	uint8_t resp_buf[4];
 
 	ret = entropy_rng90_exec_cmd(dev,
-		NULL, 0,
+		cmd_buf, sizeof(cmd_buf),
 		resp_buf, sizeof(resp_buf),
 		TYP_TIME_PU_US, MAX_TIME_PU_US
 	);
-
-	crc = crc16(RNG90_CRC16_POLYNOMIAL, RNG90_CRC16_INITIAL_VALUE, resp_buf, 2);
-	if(crc != sys_get_le16(&resp_buf[2]))
-	{
-		return -EIO;
-	}
 
 	return ret;
 }
