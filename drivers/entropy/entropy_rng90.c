@@ -103,16 +103,17 @@ static int entropy_rng90_exec_cmd(const struct device *dev,
 	start_cycles  = k_cycle_get_32();
 	max_cycle_cnt = max_us * sys_clock_hw_cycles_per_sec() / USEC_PER_SEC;
 
+	// Wait the typical amount for command completion
 	k_sleep(K_USEC(typ_us));
 
 	// Packets have two forms
 	// <len=1> <status> <crcl> <crch>
-	// <len=n> <b bytes> <crcl> <crch>
+	// <len=n> <n bytes> <crcl> <crch>, where n is 4, 16, or 32
 	// We are permitted to split fifo read into multiple read transactions
 	// We have option to reset fifo to start to re-read by sending RNG90_RST
 	if(resplen)
 	{
-		// First read length
+		// First read length while polling for command completion
 		do 
 		{
 			ret = i2c_read_dt(&cfg->bus, resp, 1);
@@ -130,23 +131,19 @@ static int entropy_rng90_exec_cmd(const struct device *dev,
 		}
 
 		// Read rest of packet and crc
-		do 
-		{
-			ret = i2c_read_dt(&cfg->bus, resp, resp[0]+2);
-			if(ret)
-			{
-				k_sleep(K_MSEC(1));
-			}
-		} while((k_cycle_get_32() - start_cycles) > max_cycle_cnt);
+		ret = i2c_read_dt(&cfg->bus, resp, resp[0]+2);
 
+		// Verify CRC
 		crc = crc16(RNG90_CRC16_POLYNOMIAL, RNG90_CRC16_INITIAL_VALUE, resp+resp[0]+1, 2);
 		if(crc != sys_get_le16(&resp_buf[2]))
 		{
 			return -EIO;
 		}
+
+		ret = resp[0] + 3;
 	}
 
-	return resp[0] + 3;
+	return ret;
 }
 
 static int entropy_rng90_cmd_wake(const struct device *dev)
