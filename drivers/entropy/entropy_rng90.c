@@ -99,6 +99,10 @@ static int entropy_rng90_exec_cmd(const struct device *dev,
 	uint32_t max_cycle_cnt;
 
 	int ret = i2c_write_dt(&cfg->bus, cmd, cmdlen);
+	if(ret)
+	{
+		return ret;
+	}
 
 	start_cycles  = k_cycle_get_32();
 	max_cycle_cnt = max_us * sys_clock_hw_cycles_per_sec() / USEC_PER_SEC;
@@ -121,7 +125,11 @@ static int entropy_rng90_exec_cmd(const struct device *dev,
 			{
 				k_sleep(K_MSEC(1));
 			}
-		} while((k_cycle_get_32() - start_cycles) > max_cycle_cnt);
+		} while(ret && ((k_cycle_get_32() - start_cycles) > max_cycle_cnt));
+		if(ret)
+		{
+			return ret;
+		}
 
 		// Either we have not enough space, or length is corrupt
 		// Reject it - we could reset and retry read
@@ -132,7 +140,11 @@ static int entropy_rng90_exec_cmd(const struct device *dev,
 
 		// Read rest of packet and crc
 		ret = i2c_read_dt(&cfg->bus, resp, resp[0]+2);
-
+		if(ret)
+		{
+			return ret;
+		}
+		
 		// Verify CRC
 		crc = crc16(RNG90_CRC16_POLYNOMIAL, RNG90_CRC16_INITIAL_VALUE, resp+resp[0]+1, 2);
 		if(crc != sys_get_le16(&resp_buf[2]))
