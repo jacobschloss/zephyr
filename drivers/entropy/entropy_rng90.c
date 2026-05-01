@@ -144,10 +144,10 @@ static int entropy_rng90_exec_cmd(const struct device *dev,
 		{
 			return ret;
 		}
-		
+
 		// Verify CRC
 		crc = crc16(RNG90_CRC16_POLYNOMIAL, RNG90_CRC16_INITIAL_VALUE, resp+resp[0]+1, 2);
-		if(crc != sys_get_le16(&resp_buf[2]))
+		if(crc != sys_get_le16(resp+resp[0]+1))
 		{
 			return -EIO;
 		}
