@@ -4,6 +4,8 @@
 config ENTROPY_RNG90
 	bool "Microchip RNG90 driver"
 	default y
+	depends on CRC
+#	depends on DT_HAS_MICROCHIP_RNG90_TRNG_ENABLED
 	select ENTROPY_HAS_DRIVER
 	help
 	  This option enables the driver for the Microchip RNG90 RNG.

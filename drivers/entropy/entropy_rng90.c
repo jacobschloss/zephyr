@@ -7,8 +7,9 @@
 #define DT_DRV_COMPAT microchip_rng90
 
 #include <zephyr/drivers/entropy.h>
-#include <zephyr/sys/crc.h>
+#include <zephyr/drivers/i2c.h>
 #include <zephyr/sys/byteorder.h>
+#include <zephyr/sys/crc.h>
 
 #include <zephyr/logging/log.h>
 LOG_MODULE_REGISTER(entropy_rng90, CONFIG_ENTROPY_LOG_LEVEL);
@@ -88,14 +89,15 @@ enum rng90_selftest_code {
 
 static int entropy_rng90_exec_cmd(const struct device *dev, 
 	uint8_t *cmd, uint16_t cmdlen,
-	uint8_t *resp, uint16_t resplen
+	uint8_t *resp, uint16_t resplen,
 	int typ_us, int max_us
 	)
 {
+	const struct entropy_rng90_config *cfg = dev->config;
 	uint32_t start_cycles;
 	uint32_t max_cycle_cnt;
 
-	int ret = i2c_write_dt(&cfg->bus, cmd_buf, cmdlen);
+	int ret = i2c_write_dt(&cfg->bus, cmd, cmdlen);
 
 	start_cycles  = k_cycle_get_32();
 	max_cycle_cnt = max_us * sys_clock_hw_cycles_per_sec() / USEC_PER_SEC;
@@ -109,13 +111,16 @@ static int entropy_rng90_exec_cmd(const struct device *dev,
 		{
 			k_sleep(K_MSEC(1));
 		}
-	} while((k_cycle_get_32() - start_cycles) > max_cycle_cnt)
+	} while((k_cycle_get_32() - start_cycles) > max_cycle_cnt);
 
 	return ret;
 }
 
 static int entropy_rng90_cmd_wake(const struct device *dev)
 {
+	const struct entropy_rng90_config *cfg = dev->config;
+	uint16_t crc;
+
 	int ret = i2c_write_dt(&cfg->bus, NULL, 0);
 	if(ret)
 	{
@@ -124,7 +129,7 @@ static int entropy_rng90_cmd_wake(const struct device *dev)
 
 	uint8_t resp_buf[4];
 
-	ret = entropy_rng90_exec_cmd(dev
+	ret = entropy_rng90_exec_cmd(dev,
 		NULL, 0,
 		resp_buf, sizeof(resp_buf),
 		TYP_TIME_PU_US, MAX_TIME_PU_US
@@ -141,7 +146,9 @@ static int entropy_rng90_cmd_wake(const struct device *dev)
 
 static int entropy_rng90_cmd_sleep(const struct device *dev)
 {
-	uint8_t cmd_buf[1] = [RNG90_SLP];
+	const struct entropy_rng90_config *cfg = dev->config;
+
+	uint8_t cmd_buf[1] = {RNG90_SLP};
 	int ret = i2c_write_dt(&cfg->bus, cmd_buf, sizeof(cmd_buf));
 	if(ret)
 	{
@@ -163,7 +170,7 @@ static int entropy_rng90_cmd_info(const struct device *dev, uint8_t *buffer, uin
 
 static int entropy_rng90_cmd_self_test(const struct device *dev)
 {
-	uint8_t cmd_buf[8] = [RNG90_CMD, 4, RNG90_CMD_TEST, PARAM_SELFTEST_DRBG_SHA, 0, 0, 0, 0];
+	uint8_t cmd_buf[8] = {RNG90_CMD, 4, RNG90_CMD_TEST, PARAM_SELFTEST_DRBG_SHA, 0, 0, 0, 0};
 	uint8_t resp_buf[4]; // [count, status, crcl, crch]
 	uint16_t crc;
 
@@ -279,6 +286,7 @@ static int entropy_rng90_cmd_rand(const struct device *dev, uint8_t rand[32])
 
 static int entropy_rng90_get_entropy(const struct device *dev, uint8_t *buffer, uint16_t length)
 {
+	int ret;
 	uint8_t buf[32];
 	uint16_t num_written = 0;
 
@@ -298,7 +306,7 @@ static int entropy_rng90_get_entropy(const struct device *dev, uint8_t *buffer, 
 		else
 		{
 			memcpy(&buffer[i], buf, 32);
-			num_written += 32
+			num_written += 32;
 		}
 	}
 
