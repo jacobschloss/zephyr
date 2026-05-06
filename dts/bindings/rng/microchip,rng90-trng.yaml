@@ -1,0 +1,8 @@
+# Copyright (c) 2026 Jacob Schloss
+# SPDX-License-Identifier: Apache-2.0
+
+description: Microchip RNG90 TRNG
+
+compatible: "microchip,rng90-trng"
+
+include: i2c-device.yaml
